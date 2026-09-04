@@ -1,0 +1,22 @@
+---
+description: SDR CLI must support --replay so work proceeds without an X310
+globs: sdr/**,scripts/**
+alwaysApply: false
+---
+
+# Replay is mandatory
+
+Any capture entrypoint (`sdr` package or `scripts/worker.py`) must expose `--replay <stem>` loading `<stem>.npy` + `<stem>.meta.json` as frozen in `docs/interfaces.md`.
+
+Live UHD is optional and must not be required to import the package or run tests.
+
+```text
+# BAD
+parser.add_argument("--live", required=True)
+
+# GOOD
+parser.add_argument("--replay", help="stem of npy+meta.json")
+parser.add_argument("--live", action="store_true")
+```
+
+Do not implement RF switching across unused UCA elements. Do not skip LO-share checks on `--live`.

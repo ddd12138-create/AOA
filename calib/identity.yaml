@@ -1,0 +1,8 @@
+# Unity calibration placeholder. Worker/host must label the run uncalibrated.
+schema_version: 1
+M: 4
+channel_ids: [0, 1, 2, 3]
+gain_lin: [1.0, 1.0, 1.0, 1.0]
+phase_rad: [0.0, 0.0, 0.0, 0.0]
+status: identity
+fc_hz: null

@@ -1,0 +1,20 @@
+---
+description: Freeze interfaces.md, keep 阵列天线 read-only, no single-station lat/lon
+alwaysApply: true
+---
+
+# Frozen contracts
+
+- Do not change field names, units, coordinates, or endianness in `docs/interfaces.md` unless the user explicitly asks.
+- Do not add or rename IqFrame / DetectionEvent / AoAResult / GeoFix / ChannelMap / ArrayGeometry keys on your own.
+- Do not modify any file under `阵列天线/` (photos, PDFs, HFSS plots).
+- Single-station output is azimuth only. `GeoFix.valid` must stay false. Never plot flyer lat/lon from one AOA.
+- Default `M=4` (elements 1,3,5,7). Do not assume a second X310. Do not treat HFSS「半径 xx mm」as UCA `R_m`.
+
+```text
+# BAD: invent a field
+AoAResult.pilot_lat_deg = ...
+
+# GOOD: attach invalid GeoFix
+geo_fix.valid = false
+```

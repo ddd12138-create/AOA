@@ -1,0 +1,30 @@
+# TwinRX port → logical channel → physical element.
+# channel_index is the row of a(θ) and of IqFrame.iq.
+schema_version: 1
+M: 4
+lo_share: true
+# true: ignore usrp_serial / device_args (replay / sim).
+replay_only: true
+device_args: ""
+usrp_serial: null
+mapping:
+  - channel_index: 0
+    element_id: 1
+    usrp_chan: "A:0"
+    twinrx_slot: "A"
+    twinrx_rx: 0
+  - channel_index: 1
+    element_id: 3
+    usrp_chan: "A:1"
+    twinrx_slot: "A"
+    twinrx_rx: 1
+  - channel_index: 2
+    element_id: 5
+    usrp_chan: "B:0"
+    twinrx_slot: "B"
+    twinrx_rx: 0
+  - channel_index: 3
+    element_id: 7
+    usrp_chan: "B:1"
+    twinrx_slot: "B"
+    twinrx_rx: 1

@@ -1,0 +1,13 @@
+# Reserved 8-element UCA. Requires a second X310 + two more TwinRX + shared 10 MHz/PPS.
+# Do not select this file until that hardware exists. Algorithm M is variable; default remains 4.
+schema_version: 1
+array_type: UCA
+M: 8
+element_ids: [1, 2, 3, 4, 5, 6, 7, 8]
+# Same fixture radius as M=4 once measured. Still not HFSS "半径 xx mm".
+R_m: null
+# 45° spacing, CCW from array 0° axis (element 1).
+phi_deg: [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
+north_offset_deg: 0.0
+calib_path: calib/identity.yaml
+sync: "dual_x310_10mhz_pps"

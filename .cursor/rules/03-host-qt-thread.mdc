@@ -1,0 +1,25 @@
+---
+description: Qt GUI thread must not run MUSIC or UHD
+globs: host/**
+alwaysApply: false
+---
+
+# Host is display-only
+
+`host/` is a PySide6 + pyqtgraph process. It subscribes to ZMQ (`iq`, `detect`, `aoa`, `status`) and sends `tune` / `start` / `stop`.
+
+Never run MUSIC, UHD, or heavy AOA numpy on the Qt GUI thread (or in this process at all).
+
+Never draw a map point / flyer lat-lon from a single-station `AoAResult`. `GeoFix` is invalid.
+
+```text
+# BAD
+def on_timer():
+    theta = music.estimate(iq)  # GUI thread
+
+# GOOD
+def on_zmq_aoa(msg: AoAResult):
+    polar.set_azimuth(msg.azimuth_deg)
+```
+
+No C++ Qt. No web UI as the main interface.

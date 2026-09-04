@@ -1,0 +1,12 @@
+# Placeholder centre frequencies. DetectionEvent.band must be one of the ids below.
+schema_version: 1
+bands:
+  - id: "900M"
+    fc_hz: 900000000.0
+    note: "ISM / UAV control. Antenna docs also quote 0.84 GHz for element optimisation."
+  - id: "2.4G"
+    fc_hz: 2400000000.0
+    note: "UAV control / video"
+  - id: "5.8G"
+    fc_hz: 5800000000.0
+    note: "UAV video; geometry error is more sensitive"

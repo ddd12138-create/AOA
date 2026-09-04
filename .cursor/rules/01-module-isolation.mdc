@@ -1,0 +1,23 @@
+---
+description: Each module may only edit its own directory
+alwaysApply: true
+---
+
+# Module isolation
+
+Edit only the directory you were assigned. Do not drive-by refactor other packages.
+
+| Own | May read | Must not edit |
+| --- | --- | --- |
+| `sdr/` | docs, configs | detect, aoa, host, `docs/interfaces.md` |
+| `detect/` | docs, sdr types | aoa, host, interfaces fields |
+| `aoa/` | docs, calib, configs | host, sdr, UHD |
+| `host/` | docs (ZMQ) | aoa, sdr, MUSIC |
+| `calib/` `geo/` `sim/` `tests/` `scripts/` | docs | other modules' sources |
+
+Cross-module API is `docs/interfaces.md` only. If you need a new field, stop and ask the user; do not patch the markdown yourself.
+
+```text
+# BAD: aoa agent writes host/polar_widget.py
+# GOOD: aoa agent only adds aoa/*.py consuming DetectionEvent
+```
