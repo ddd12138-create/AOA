@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "frame_id": 1,
+  "timestamp_utc_ns": 0,
+  "fc_hz": 2400000000.0,
+  "fs_hz": 1000000.0,
+  "n_chan": 4,
+  "n_samp": 2048,
+  "dtype": "complex64",
+  "layout": "channel_first",
+  "endianness": "little",
+  "channel_ids": [
+    0,
+    1,
+    2,
+    3
+  ],
+  "element_ids": [
+    1,
+    3,
+    5,
+    7
+  ]
+}
