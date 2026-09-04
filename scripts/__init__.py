@@ -1,1 +1,1 @@
-"""Launchers for worker and host processes. Skeleton: CLI contracts in README only."""
+"""Launchers for worker and host processes. Worker is implemented; host is not."""

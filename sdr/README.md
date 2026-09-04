@@ -14,11 +14,14 @@ Owns USRP acquisition and file replay. Produces `IqFrame` as defined in [docs/in
 - Editing [docs/interfaces.md](../docs/interfaces.md) or anything under `阵列天线/`.
 - RF switching / polling unused UCA elements.
 
-## CLI (not implemented in this skeleton)
+## CLI
 
 ```text
 python -m sdr --replay path/to/stem
 python -m sdr --live --config configs/channel_map.yaml
+python -m sdr --live --config configs/channel_map.yaml --save path/to/stem
 ```
 
-`--replay` is mandatory in the live CLI as well (the flag must exist; live mode is optional). See [docs/runbook.md](../docs/runbook.md).
+`--replay` is always on the parser (live is optional). It loads `<stem>.npy` + `<stem>.meta.json` and does not import UHD. `--live` is one X310 / 4 TwinRX channels in `channel_map.yaml` order and is refused unless `lo_share` is true.
+
+Worker ZMQ entry: `python scripts/worker.py --replay path/to/stem`. See [docs/runbook.md](../docs/runbook.md).
