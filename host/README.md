@@ -1,18 +1,29 @@
 # host
 
-PySide6 (Qt 6) + pyqtgraph UI process. Not C++ Qt, not a web UI.
+PySide6 (Qt 6) + pyqtgraph UI process. Independent from the worker. Not C++ Qt, not a web UI.
+
+## Run
+
+```text
+python scripts/host.py --zmq tcp://127.0.0.1:5556
+```
+
+- SUB: `--zmq` (default `tcp://127.0.0.1:5556`)
+- Command REQ: same host, port + 1 (`tcp://127.0.0.1:5557`)
+
+The window opens even if the worker is down; the device panel shows **未连接**.
 
 ## Scope
 
-- Subscribe to worker ZMQ topics (`iq`, `detect`, `aoa`, `status`).
+- Subscribe to worker topics `iq`, `detect`, `aoa`, `status`.
 - Send `tune` / `start` / `stop` on the command socket.
-- Display azimuth (array frame; optional north-converted value). Polar / spectrum plots only.
+- Show device/status, IQ amplitude summary, MUSIC polar 0–360°, `azimuth_deg`.
+- `AoAResult` draws the array-frame azimuth ray only.
+- `geo_fix.valid == false`: never plot flyer lat/lon.
+- `uncalibrated == true`: red **UNCALIBRATED** banner.
+- Second-station layer is reserved and disabled.
 
 ## Hard rules
 
-- Do **not** run MUSIC, UHD, or heavy numpy AOA on the GUI thread. Compute lives in the worker process.
-- Do **not** plot a flyer lat/lon from a single-station `AoAResult`. `GeoFix` is invalid until multi-station geo exists.
-
-## Out of scope (this skeleton)
-
-- Any window, widget, or slot implementation.
+- Do **not** run MUSIC, UHD, or heavy numpy AOA on the GUI thread (or in this process).
+- Do **not** turn a single-station `AoAResult` into a map point.
