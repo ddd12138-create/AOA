@@ -1,6 +1,6 @@
-"""Worker process: sdr -> detect/aoa hooks -> ZMQ PUB/REP.
+"""Worker process: sdr -> detect placeholder -> aoa.MusicEstimator -> ZMQ PUB/REP.
 
-detect/aoa are empty callbacks (no MUSIC). Replay does not import UHD.
+MUSIC runs here, never in the host process. Replay does not import UHD.
 """
 
 from __future__ import annotations
@@ -15,13 +15,17 @@ import time
 from pathlib import Path
 from typing import Any
 
-import yaml
 import zmq
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from aoa.errors import MissingArrayRadiusError
+from aoa.estimator import MusicEstimator
+from aoa.geometry import require_radius_m
+from aoa.types import DetectionEvent
+from aoa.types import IqFrame as AoAIqFrame
 from sdr.channel_map import ChannelMap, assert_live_allowed, load_channel_map
 from sdr.cli import add_source_args
 from sdr.errors import LiveRejected, ReplayError, SdrError
@@ -30,20 +34,12 @@ from sdr.replay import ReplaySource
 
 DEFAULT_PUB = "tcp://127.0.0.1:5556"
 DEFAULT_REP = "tcp://127.0.0.1:5557"
-DEFAULT_ARRAY = "configs/array_uca_m4.yaml"
+DEFAULT_ARRAY_SIM = "configs/array_uca_m4_sim.yaml"
+DEFAULT_ARRAY_HW = "configs/array_uca_m4.yaml"
 STATUS_PERIOD_S = 1.0
+_BAND_FC_HZ = (("900M", 900e6), ("2.4G", 2.4e9), ("5.8G", 5.8e9))
 
 log = logging.getLogger("worker")
-
-
-def _empty_detect(_frame: IqFrame) -> None:
-    """Passthrough until detect/ is implemented. Do not invent DetectionEvent here."""
-    return None
-
-
-def _empty_aoa(_frame: IqFrame, _event: Any = None) -> None:
-    """Empty callback. MUSIC lives in aoa/, not in this worker."""
-    return None
 
 
 def resolve_repo_path(path: str | Path) -> Path:
@@ -56,18 +52,54 @@ def resolve_repo_path(path: str | Path) -> Path:
     return p
 
 
-def load_uncalibrated(array_path: Path | None) -> bool:
-    if array_path is None or not array_path.is_file():
-        return True
-    raw = yaml.safe_load(array_path.read_text(encoding="utf-8")) or {}
-    calib_rel = raw.get("calib_path")
-    if not calib_rel:
-        return True
-    calib_path = resolve_repo_path(str(calib_rel))
-    if not calib_path.is_file():
-        return True
-    calib = yaml.safe_load(calib_path.read_text(encoding="utf-8")) or {}
-    return calib.get("status") != "calibrated"
+def band_from_fc_hz(fc_hz: float) -> str:
+    return min(_BAND_FC_HZ, key=lambda item: abs(item[1] - float(fc_hz)))[0]
+
+
+def as_aoa_frame(frame: IqFrame) -> AoAIqFrame:
+    """Map sdr.IqFrame onto aoa.IqFrame without copying IQ unless needed."""
+    return AoAIqFrame(
+        schema_version=int(frame.schema_version),
+        frame_id=int(frame.frame_id),
+        timestamp_utc_ns=int(frame.timestamp_utc_ns),
+        fc_hz=float(frame.fc_hz),
+        fs_hz=float(frame.fs_hz),
+        n_chan=int(frame.n_chan),
+        n_samp=int(frame.n_samp),
+        dtype=str(frame.dtype),
+        layout=str(frame.layout),
+        endianness=str(frame.endianness),
+        channel_ids=[int(x) for x in frame.channel_ids],
+        element_ids=[int(x) for x in frame.element_ids],
+        iq=frame.iq,
+    )
+
+
+def whole_frame_detect(frame: AoAIqFrame, event_id: int) -> DetectionEvent:
+    """detect/ placeholder: treat the entire snapshot as one burst."""
+    return DetectionEvent.covering_frame(
+        frame,
+        event_id=event_id,
+        snr_db=20.0,
+        band=band_from_fc_hz(frame.fc_hz),
+    )
+
+
+def detection_payload(event: DetectionEvent) -> dict[str, Any]:
+    return {
+        "schema_version": int(event.schema_version),
+        "event_id": int(event.event_id),
+        "timestamp_utc_ns": int(event.timestamp_utc_ns),
+        "fc_hz": float(event.fc_hz),
+        "bw_hz": float(event.bw_hz),
+        "snr_db": float(event.snr_db),
+        "burst_start_samp": int(event.burst_start_samp),
+        "burst_end_samp": int(event.burst_end_samp),
+        "burst_start_utc_ns": int(event.burst_start_utc_ns),
+        "burst_end_utc_ns": int(event.burst_end_utc_ns),
+        "iq_ref": event.iq_ref.to_dict(),
+        "band": str(event.band),
+    }
 
 
 class Worker:
@@ -79,18 +111,17 @@ class Worker:
         rep_addr: str,
         replay: bool,
         M: int,
-        uncalibrated: bool,
-        detect=_empty_detect,
-        aoa=_empty_aoa,
+        estimator: MusicEstimator,
     ) -> None:
         self.source = source
         self.pub_addr = pub_addr
         self.rep_addr = rep_addr
         self.replay = replay
         self.M = M
-        self.uncalibrated = uncalibrated
-        self._detect = detect
-        self._aoa = aoa
+        self._estimator = estimator
+        self.uncalibrated = bool(estimator.uncalibrated)
+        self._event_id = 0
+        self._aoa_blocked = False
         self._lock = threading.Lock()
         self._pub_lock = threading.Lock()
         self.running = False
@@ -106,6 +137,15 @@ class Worker:
         self._rep.setsockopt(zmq.LINGER, 0)
         self._rep.bind(rep_addr)
         self._cmd_thread = threading.Thread(target=self._cmd_loop, name="worker-rep", daemon=True)
+        self._apply_radius_gate()
+
+    def _apply_radius_gate(self) -> None:
+        try:
+            require_radius_m(self._estimator.geometry)
+        except MissingArrayRadiusError as exc:
+            self._aoa_blocked = True
+            self.state = "error"
+            self.detail = str(exc)
 
     def start_cmd_thread(self) -> None:
         self._cmd_thread.start()
@@ -114,7 +154,8 @@ class Worker:
         self.shutdown = True
         with self._lock:
             self.running = False
-            self.state = "idle"
+            if not self._aoa_blocked:
+                self.state = "idle"
             try:
                 self.source.close()
             except Exception:
@@ -154,12 +195,15 @@ class Worker:
             if want:
                 self.source.start()
                 self.running = True
-                self.state = "running"
-                self.detail = ""
+                if self._aoa_blocked:
+                    self.state = "error"
+                else:
+                    self.state = "running"
+                    self.detail = ""
             else:
                 self.running = False
-                self.state = "idle"
                 self.source.stop()
+                self.state = "error" if self._aoa_blocked else "idle"
         self._publish_status()
 
     def status_payload(self) -> dict[str, Any]:
@@ -174,17 +218,42 @@ class Worker:
             "detail": self.detail,
         }
 
-    def _publish_status(self) -> None:
-        body = json.dumps(self.status_payload(), ensure_ascii=False).encode("utf-8")
+    def _publish_json(self, topic: bytes, payload: dict[str, Any]) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         with self._pub_lock:
             try:
-                self._pub.send_multipart([b"status", body], flags=zmq.NOBLOCK)
+                self._pub.send_multipart([topic, body], flags=zmq.NOBLOCK)
             except zmq.Again:
                 pass
+
+    def _publish_status(self) -> None:
+        self._publish_json(b"status", self.status_payload())
 
     def _publish_iq(self, frame: IqFrame) -> None:
         with self._pub_lock:
             self._pub.send_multipart([b"iq", *frame.zmq_parts()])
+
+    def _next_event_id(self) -> int:
+        self._event_id += 1
+        return self._event_id
+
+    def _detect_and_aoa(self, frame: IqFrame) -> None:
+        aoa_frame = as_aoa_frame(frame)
+        event = whole_frame_detect(aoa_frame, self._next_event_id())
+        self._publish_json(b"detect", detection_payload(event))
+        if self._aoa_blocked:
+            return
+        try:
+            out = self._estimator.estimate(aoa_frame, event)
+        except MissingArrayRadiusError as exc:
+            self._aoa_blocked = True
+            self.state = "error"
+            self.detail = str(exc)
+            log.error("%s", exc)
+            self._publish_status()
+            return
+        self.uncalibrated = bool(out.uncalibrated)
+        self._publish_json(b"aoa", out.aoa_json())
 
     def _cmd_loop(self) -> None:
         poller = zmq.Poller()
@@ -217,8 +286,7 @@ class Worker:
                     if not self.running:
                         continue
                     self._publish_iq(frame)
-                    event = self._detect(frame)
-                    self._aoa(frame, event)
+                    self._detect_and_aoa(frame)
                 except Exception as exc:
                     self.state = "error"
                     self.detail = str(exc)
@@ -239,10 +307,17 @@ class Worker:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="worker",
-        description="sdr worker: PUB iq/status on 5556, REP tune/start/stop on 5557.",
+        description="sdr worker: detect placeholder + MUSIC; PUB iq/detect/aoa/status on 5556.",
     )
     add_source_args(parser)
-    parser.add_argument("--array", default=DEFAULT_ARRAY, help="ArrayGeometry yaml")
+    parser.add_argument(
+        "--array",
+        default=None,
+        help=(
+            "ArrayGeometry yaml "
+            f"(replay default {DEFAULT_ARRAY_SIM}; live default {DEFAULT_ARRAY_HW})"
+        ),
+    )
     parser.add_argument("--pub", default=DEFAULT_PUB, help=f"PUB bind (default {DEFAULT_PUB})")
     parser.add_argument("--rep", default=DEFAULT_REP, help=f"REP bind (default {DEFAULT_REP})")
     return parser
@@ -267,6 +342,12 @@ def open_source(args: argparse.Namespace):
     return src, False, cmap
 
 
+def load_estimator(array_path: Path) -> MusicEstimator:
+    if not array_path.is_file():
+        raise FileNotFoundError(f"array yaml not found: {array_path}")
+    return MusicEstimator.from_array_yaml(array_path, REPO_ROOT)
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = build_parser().parse_args(argv)
@@ -279,18 +360,34 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    array_path = resolve_repo_path(args.array)
-    uncalibrated = load_uncalibrated(array_path if array_path.is_file() else None)
-    M = source.frame.n_chan if replay else (cmap.M if isinstance(cmap, ChannelMap) else 4)
+    array_rel = args.array or (DEFAULT_ARRAY_SIM if replay else DEFAULT_ARRAY_HW)
+    array_path = resolve_repo_path(array_rel)
+    try:
+        estimator = load_estimator(array_path)
+    except Exception as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        source.close()
+        return 1
 
-    worker = Worker(
-        source,
-        pub_addr=args.pub,
-        rep_addr=args.rep,
-        replay=replay,
-        M=M,
-        uncalibrated=uncalibrated,
-    )
+    M = source.frame.n_chan if replay else (cmap.M if isinstance(cmap, ChannelMap) else estimator.M)
+
+    try:
+        worker = Worker(
+            source,
+            pub_addr=args.pub,
+            rep_addr=args.rep,
+            replay=replay,
+            M=M,
+            estimator=estimator,
+        )
+    except zmq.ZMQError as exc:
+        source.close()
+        print(
+            f"error: cannot bind {args.pub} / {args.rep}: {exc}\n"
+            "stop the other worker (Ctrl+C in that terminal) or pick --pub/--rep",
+            file=sys.stderr,
+        )
+        return 1
 
     def _stop(*_args: object) -> None:
         worker.shutdown = True
@@ -299,7 +396,15 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(signal, "SIGTERM"):
         signal.signal(signal.SIGTERM, _stop)
 
-    log.info("PUB %s  REP %s  replay=%s  M=%s", args.pub, args.rep, replay, M)
+    log.info(
+        "PUB %s  REP %s  replay=%s  M=%s  array=%s  uncalibrated=%s",
+        args.pub,
+        args.rep,
+        replay,
+        M,
+        array_path,
+        worker.uncalibrated,
+    )
     try:
         worker.run(auto_start=replay)
     finally:

@@ -7,10 +7,12 @@
 3. Pass: `|AoAResult.azimuth_deg - 30| ≤ 2°` at high SNR (tighter than the 5° RMS field goal).
 
 ```text
-pytest tests/test_aoa_theta30.py
+pytest tests/test_aoa_theta30.py tests/test_worker_replay_theta30.py
 ```
 
 Do not implement MUSIC inside the test. Fixture `R_m: null` must refuse azimuth.
+
+Worker `--replay tests/golden/theta30_m4` (default `configs/array_uca_m4_sim.yaml`) must PUB topic `aoa` with `|azimuth_deg - 30| ≤ 2°` so host polar points near 30°. Hardware `configs/array_uca_m4.yaml` (`R_m: null`) must not emit `aoa` and must set `status.state=error`.
 
 ## Out of scope
 

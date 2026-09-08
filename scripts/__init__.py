@@ -1,1 +1,1 @@
-"""Launchers for worker and host processes. Worker is implemented; host is not."""
+"""Launchers for worker and host processes. MUSIC stays in the worker."""

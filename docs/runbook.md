@@ -1,6 +1,6 @@
 # 运行手册（提纲）
 
-本阶段没有采集 / MUSIC / Qt 实现。下列命令是约定接口，落地业务代码后才可真正跑通。
+Replay 路径：worker 读 npy+meta，整帧当 burst，跑 `aoa.MusicEstimator`，PUB `aoa` / `status`。Host 只订阅读数，GUI 进程不跑 MUSIC。
 
 依赖与解释器见仓库根 `README.md`、`requirements.txt`。数据结构见 `docs/interfaces.md`。
 
@@ -13,11 +13,18 @@
 3. 启动 worker 回放（无 USRP）：
 
    ```text
-   python scripts/worker.py --replay tests/golden/theta30_m4 --array configs/array_uca_m4.yaml
+   python scripts/worker.py --replay tests/golden/theta30_m4
    ```
 
-4. 可选：另开 host 订阅读方位。无 Qt 时只看 worker 日志 / pytest。
-5. 验收：`pytest tests/test_aoa_theta30.py`。当前 **skip**（`aoa not implemented`）。实现后期望 `|azimuth_deg - 30| ≤ 2°`。这是算法回归，不是外场 5° RMS 指标。
+   默认 `--array configs/array_uca_m4_sim.yaml`。硬件夹具文件 `configs/array_uca_m4.yaml` 在 `R_m: null` 时拒绝出方位，`status.state=error`。
+
+4. 另开 host 订阅读方位（极坐标应指向约 30°）：
+
+   ```text
+   python scripts/host.py --zmq tcp://127.0.0.1:5556
+   ```
+
+5. 验收：`pytest tests/test_aoa_theta30.py tests/test_worker_replay_theta30.py`。期望 `|azimuth_deg - 30| ≤ 2°`。这是算法回归，不是外场 5° RMS 指标。 identity 校准时 `status.uncalibrated=true`。
 
 `--replay` 在 sdr/worker CLI 上必须始终存在，这样没有设备也能开发。
 
