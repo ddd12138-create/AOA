@@ -13,3 +13,7 @@ Thumbs.db
 *.npy
 !tests/golden/*.npy
 *.npz
+docs/*.aux
+docs/*.log
+docs/*.toc
+docs/*.out

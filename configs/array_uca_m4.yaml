@@ -14,4 +14,7 @@ R_m: null
 phi_deg: [0.0, 90.0, 180.0, 270.0]
 # Bearing of array 0° axis, clockwise from true north. 0 = unsurveyed.
 north_offset_deg: 0.0
+# Repo-root relative CalibFile. Keep identity.yaml until a measured
+# `python -m calib --replay … --theta-deg … --array <this file> --out calib/<name>.yaml`
+# run succeeds (requires R_m in metres first). Never overwrite calib/identity.yaml.
 calib_path: calib/identity.yaml

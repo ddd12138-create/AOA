@@ -1,4 +1,4 @@
-"""Worker process: sdr -> detect placeholder -> aoa.MusicEstimator -> ZMQ PUB/REP.
+"""Worker process: sdr -> detect -> aoa.MusicEstimator -> ZMQ PUB/REP.
 
 MUSIC runs here, never in the host process. Replay does not import UHD.
 """
@@ -24,8 +24,8 @@ if str(REPO_ROOT) not in sys.path:
 from aoa.errors import MissingArrayRadiusError
 from aoa.estimator import MusicEstimator
 from aoa.geometry import require_radius_m
-from aoa.types import DetectionEvent
 from aoa.types import IqFrame as AoAIqFrame
+from detect import DetectionEvent, detect_frame
 from sdr.channel_map import ChannelMap, assert_live_allowed, load_channel_map
 from sdr.cli import add_source_args
 from sdr.errors import LiveRejected, ReplayError, SdrError
@@ -37,7 +37,6 @@ DEFAULT_REP = "tcp://127.0.0.1:5557"
 DEFAULT_ARRAY_SIM = "configs/array_uca_m4_sim.yaml"
 DEFAULT_ARRAY_HW = "configs/array_uca_m4.yaml"
 STATUS_PERIOD_S = 1.0
-_BAND_FC_HZ = (("900M", 900e6), ("2.4G", 2.4e9), ("5.8G", 5.8e9))
 
 log = logging.getLogger("worker")
 
@@ -50,10 +49,6 @@ def resolve_repo_path(path: str | Path) -> Path:
     if alt.exists():
         return alt
     return p
-
-
-def band_from_fc_hz(fc_hz: float) -> str:
-    return min(_BAND_FC_HZ, key=lambda item: abs(item[1] - float(fc_hz)))[0]
 
 
 def as_aoa_frame(frame: IqFrame) -> AoAIqFrame:
@@ -72,16 +67,6 @@ def as_aoa_frame(frame: IqFrame) -> AoAIqFrame:
         channel_ids=[int(x) for x in frame.channel_ids],
         element_ids=[int(x) for x in frame.element_ids],
         iq=frame.iq,
-    )
-
-
-def whole_frame_detect(frame: AoAIqFrame, event_id: int) -> DetectionEvent:
-    """detect/ placeholder: treat the entire snapshot as one burst."""
-    return DetectionEvent.covering_frame(
-        frame,
-        event_id=event_id,
-        snr_db=20.0,
-        band=band_from_fc_hz(frame.fc_hz),
     )
 
 
@@ -233,27 +218,27 @@ class Worker:
         with self._pub_lock:
             self._pub.send_multipart([b"iq", *frame.zmq_parts()])
 
-    def _next_event_id(self) -> int:
-        self._event_id += 1
-        return self._event_id
-
     def _detect_and_aoa(self, frame: IqFrame) -> None:
+        events = detect_frame(frame, first_event_id=self._event_id + 1)
+        if not events:
+            return
+        self._event_id = int(events[-1].event_id)
         aoa_frame = as_aoa_frame(frame)
-        event = whole_frame_detect(aoa_frame, self._next_event_id())
-        self._publish_json(b"detect", detection_payload(event))
-        if self._aoa_blocked:
-            return
-        try:
-            out = self._estimator.estimate(aoa_frame, event)
-        except MissingArrayRadiusError as exc:
-            self._aoa_blocked = True
-            self.state = "error"
-            self.detail = str(exc)
-            log.error("%s", exc)
-            self._publish_status()
-            return
-        self.uncalibrated = bool(out.uncalibrated)
-        self._publish_json(b"aoa", out.aoa_json())
+        for event in events:
+            self._publish_json(b"detect", detection_payload(event))
+            if self._aoa_blocked:
+                continue
+            try:
+                out = self._estimator.estimate(aoa_frame, event)
+            except MissingArrayRadiusError as exc:
+                self._aoa_blocked = True
+                self.state = "error"
+                self.detail = str(exc)
+                log.error("%s", exc)
+                self._publish_status()
+                return
+            self.uncalibrated = bool(out.uncalibrated)
+            self._publish_json(b"aoa", out.aoa_json())
 
     def _cmd_loop(self) -> None:
         poller = zmq.Poller()
@@ -307,7 +292,7 @@ class Worker:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="worker",
-        description="sdr worker: detect placeholder + MUSIC; PUB iq/detect/aoa/status on 5556.",
+        description="sdr worker: energy detect + MUSIC; PUB iq/detect/aoa/status on 5556.",
     )
     add_source_args(parser)
     parser.add_argument(
