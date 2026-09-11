@@ -182,3 +182,14 @@ def test_lo_locked_from_sensor_variants():
     assert lo_locked_from_sensor(SimpleNamespace(value="LO: locked")) is True
     assert lo_locked_from_sensor(SimpleNamespace(value="unlocked")) is False
     assert lo_locked_from_sensor(None) is False
+
+
+def test_is_rx_overflow_matches_uhd_enum_string():
+    from sdr.errors import RxOverflow
+    from sdr.live import is_rx_overflow
+
+    assert is_rx_overflow("rx_metadata_error_code.overflow") is True
+    assert is_rx_overflow("OVERFLOW") is True
+    assert is_rx_overflow("none") is False
+    assert is_rx_overflow(None) is False
+    assert issubclass(RxOverflow, Exception)

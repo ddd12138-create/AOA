@@ -27,8 +27,8 @@ from aoa.geometry import require_radius_m
 from aoa.types import IqFrame as AoAIqFrame
 from detect import DetectionEvent, detect_frame
 from sdr.channel_map import ChannelMap, assert_live_allowed, load_channel_map
-from sdr.cli import add_source_args
-from sdr.errors import LiveRejected, ReplayError, SdrError
+from sdr.cli import DEFAULT_N_SAMP, add_source_args
+from sdr.errors import LiveRejected, ReplayError, RxOverflow, SdrError
 from sdr.iqframe import IqFrame
 from sdr.replay import ReplaySource, save_replay
 
@@ -37,6 +37,8 @@ DEFAULT_REP = "tcp://127.0.0.1:5557"
 DEFAULT_ARRAY_SIM = "configs/array_uca_m4_sim.yaml"
 DEFAULT_ARRAY_HW = "configs/array_uca_m4.yaml"
 STATUS_PERIOD_S = 1.0
+# Default 4096 samp @ 1 Msps is 4 ms — too short for detect/MUSIC; UHD overflows.
+LIVE_N_SAMP = 32_768
 
 log = logging.getLogger("worker")
 
@@ -111,6 +113,8 @@ class Worker:
         self._aoa_blocked = False
         self._lock = threading.Lock()
         self._pub_lock = threading.Lock()
+        self._latest_lock = threading.Lock()
+        self._latest_frame: IqFrame | None = None
         self.running = False
         self.shutdown = False
         self.state = "idle"
@@ -216,7 +220,10 @@ class Worker:
 
     def _publish_iq(self, frame: IqFrame) -> None:
         with self._pub_lock:
-            self._pub.send_multipart([b"iq", *frame.zmq_parts()])
+            try:
+                self._pub.send_multipart([b"iq", *frame.zmq_parts()], flags=zmq.NOBLOCK)
+            except zmq.Again:
+                pass
 
     def _detect_and_aoa(self, frame: IqFrame) -> None:
         events = detect_frame(frame, first_event_id=self._event_id + 1)
@@ -236,6 +243,9 @@ class Worker:
                 log.warning("%s", exc)
                 self._publish_status()
                 return
+            except Exception as exc:
+                log.warning("aoa estimate failed: %s", exc)
+                continue
             self.uncalibrated = bool(out.uncalibrated)
             self._publish_json(b"aoa", out.aoa_json())
 
@@ -256,8 +266,28 @@ class Worker:
                 resp = {"ok": False, "error": str(exc)}
             self._rep.send_string(json.dumps(resp, ensure_ascii=False))
 
+    def _live_aoa_loop(self) -> None:
+        """Detect/MUSIC off the UHD recv path so a slow estimate cannot overflow RX."""
+        while not self.shutdown:
+            with self._latest_lock:
+                frame = self._latest_frame
+                self._latest_frame = None
+            if frame is None:
+                time.sleep(0.005)
+                continue
+            try:
+                self._detect_and_aoa(frame)
+            except Exception:
+                log.exception("detect/aoa error")
+
     def run(self, *, auto_start: bool) -> None:
         self.start_cmd_thread()
+        aoa_thread: threading.Thread | None = None
+        if not self.replay:
+            aoa_thread = threading.Thread(
+                target=self._live_aoa_loop, name="worker-aoa", daemon=True
+            )
+            aoa_thread.start()
         time.sleep(0.2)
         self._publish_status()
         if auto_start:
@@ -272,7 +302,14 @@ class Worker:
                     if self._save_stem is not None:
                         save_replay(self._save_stem, frame)
                     self._publish_iq(frame)
-                    self._detect_and_aoa(frame)
+                    if self.replay:
+                        self._detect_and_aoa(frame)
+                    else:
+                        with self._latest_lock:
+                            self._latest_frame = frame
+                except RxOverflow as exc:
+                    log.warning("%s", exc)
+                    continue
                 except Exception as exc:
                     self.state = "error"
                     self.detail = str(exc)
@@ -288,6 +325,8 @@ class Worker:
             if now - last_status >= STATUS_PERIOD_S:
                 self._publish_status()
                 last_status = now
+        if aoa_thread is not None:
+            aoa_thread.join(timeout=0.6)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -318,12 +357,15 @@ def open_source(args: argparse.Namespace):
     assert_live_allowed(cmap)
     from sdr.live import LiveSource
 
+    n_samp = int(args.n_samp)
+    if n_samp == DEFAULT_N_SAMP:
+        n_samp = LIVE_N_SAMP
     src = LiveSource(
         cmap,
         fc_hz=args.fc_hz,
         fs_hz=args.fs_hz,
         gain_db=args.gain_db,
-        n_samp=args.n_samp,
+        n_samp=n_samp,
     )
     return src, False, cmap
 
@@ -393,7 +435,7 @@ def main(argv: list[str] | None = None) -> int:
         worker.uncalibrated,
     )
     try:
-        worker.run(auto_start=replay)
+        worker.run(auto_start=True)
     finally:
         worker.close()
     return 0 if worker.state != "error" else 1

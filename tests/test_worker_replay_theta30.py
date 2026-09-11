@@ -16,6 +16,7 @@ import zmq
 ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_STEM = "tests/golden/theta30_m4"
 FIXTURE_ARRAY = "configs/array_uca_m4_unset.yaml"
+HW_ARRAY = "configs/array_uca_m4.yaml"
 WORKER = ROOT / "scripts" / "worker.py"
 
 
@@ -161,6 +162,34 @@ def test_worker_hardware_array_rm_null_no_aoa_topic():
         assert detects, "missing R_m must still PUB detect when a burst exists"
         assert aoas == []
         assert all(s.get("state") != "error" for s in statuses)
+    finally:
+        _stop(proc)
+
+
+def test_worker_hardware_array_rm_set_aoa_uncalibrated():
+    """R_m=0.06 unblocks aoa; identity.yaml still marks UNCALIBRATED. Not a 30° check."""
+    proc, pub = _spawn_worker("--array", HW_ARRAY)
+    try:
+        time.sleep(0.4)
+        assert proc.poll() is None, _stop(proc)[1]
+        aoas, statuses, detects, iq_n = _collect(pub, timeout_s=4.0)
+        assert statuses, "expected status with hardware array yaml"
+        assert iq_n > 0
+        assert detects, "golden burst should still PUB detect"
+        assert aoas, "R_m=0.06 must allow aoa PUB"
+
+        last = aoas[-1]
+        assert last["elevation_deg"] is None
+        assert last["geo_fix"]["valid"] is False
+        assert last["M"] == 4
+        assert "uncalibrated" not in last
+        assert last["geo_fix"].get("lat_deg") is None
+        assert last["geo_fix"].get("lon_deg") is None
+
+        status = statuses[-1]
+        assert status["uncalibrated"] is True
+        assert status["state"] == "running"
+        assert "R_m" not in str(status.get("detail") or "")
     finally:
         _stop(proc)
 

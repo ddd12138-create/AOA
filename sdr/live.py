@@ -10,7 +10,7 @@ from types import ModuleType
 import numpy as np
 
 from sdr.channel_map import ChannelMap, assert_live_allowed
-from sdr.errors import SdrError
+from sdr.errors import RxOverflow, SdrError
 from sdr.iqframe import IqFrame, make_iq_frame
 
 # This machine's RFNoC tree has no LO1/LO2 paths; TwinRX LO APIs must use "all".
@@ -66,6 +66,13 @@ def _stream_mode(uhd: ModuleType, which: str):
         if val is not None:
             return val
     raise SdrError(f"UHD StreamMode has none of {names}")
+
+
+def is_rx_overflow(err: object) -> bool:
+    """UHD overflow enum / string. Safe to call without a radio."""
+    if err is None:
+        return False
+    return "overflow" in str(err).lower()
 
 
 def twinrx_lo_plan(channel_map: ChannelMap) -> tuple[tuple[int, str, str, bool], ...]:
@@ -470,5 +477,8 @@ class LiveSource:
         err = getattr(md, "error_code", None)
         none = getattr(self._uhd.types, "RXMetadataErrorCode", None)
         none_val = getattr(none, "none", 0) if none is not None else 0
-        if err is not None and err != none_val:
-            raise SdrError(f"UHD RX error: {err}")
+        if err is None or err == none_val:
+            return
+        if is_rx_overflow(err):
+            raise RxOverflow("UHD RX overflow (dropped samples); dropping this frame")
+        raise SdrError(f"UHD RX error: {err}")

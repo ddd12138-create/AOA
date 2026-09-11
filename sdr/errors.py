@@ -11,3 +11,7 @@ class ReplayError(SdrError):
 
 class LiveRejected(SdrError):
     """--live refused (LO share, channel count, or mapping)."""
+
+
+class RxOverflow(SdrError):
+    """UHD dropped samples. Discard this frame and keep streaming."""

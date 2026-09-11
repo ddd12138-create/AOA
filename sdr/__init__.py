@@ -5,7 +5,7 @@ Live capture is loaded only when opening a radio.
 """
 
 from sdr.channel_map import ChannelMap, assert_live_allowed, load_channel_map
-from sdr.errors import LiveRejected, ReplayError, SdrError
+from sdr.errors import LiveRejected, ReplayError, RxOverflow, SdrError
 from sdr.iqframe import IqFrame, SCHEMA_VERSION
 from sdr.replay import ReplaySource, load_replay, save_replay
 
@@ -16,6 +16,7 @@ __all__ = [
     "LiveRejected",
     "ReplayError",
     "ReplaySource",
+    "RxOverflow",
     "SdrError",
     "assert_live_allowed",
     "load_channel_map",
