@@ -48,19 +48,38 @@
 \fancyfoot[C]{\thepage}
 \renewcommand{\headrulewidth}{0.4pt}
 \newcommand{\file}[1]{\texttt{\detokenize{#1}}}
+% 字体颜色：黑=初稿仍有效；绿=本次核对后已完成；蓝=已入库说明；橙=待办；红=验收提醒
+\definecolor{doneC}{RGB}{0,120,70}
+\definecolor{updC}{RGB}{10,70,150}
+\definecolor{pendC}{RGB}{190,90,0}
+\definecolor{remindC}{RGB}{170,25,35}
+\newcommand{\done}[1]{\textcolor{doneC}{#1}}
+\newcommand{\upd}[1]{\textcolor{updC}{#1}}
+\newcommand{\pend}[1]{\textcolor{pendC}{#1}}
+\newcommand{\remind}[1]{\textcolor{remindC}{#1}}
 
 \title{\textbf{基于 MUSIC 与 USRP X310 的无人机无源 AOA 测向系统}\\[0.6em]
 \large 工作进度总结与后续技术路线}
 \author{项目组（仓库 \texttt{AOA}）}
-\date{\today}
+\date{2026 年 9 月 11 日（相对初稿用彩色更新）}
 
 \begin{document}
 \maketitle
 \tableofcontents
 \newpage
 
+\noindent\textbf{阅读颜色：}
+\textcolor{black}{黑色：初稿仍成立的基线}\quad
+\done{绿色：本次核对后确认已完成}\quad
+\upd{蓝色：已推送 \texttt{origin/master} 的说明}\quad
+\pend{橙色：下一步软件/联调}\quad
+\remind{红色：最后真机验收时再填 $R_m$（按你的要求暂不填写）}
+
 \begin{abstract}
-本仓库实现无人机遥控/图传信号的\textbf{单站无源测向}，算法为均匀圆阵（UCA）上的 MUSIC，前端为 1~台 USRP X310 与 2~块 TwinRX（4~路相干接收），实物天线为八元圆阵中固定抽取的阵元 1、3、5、7。上位机采用 PySide6。截至本文，软件已完成接口冻结、MUSIC 仿真验收、IQ 回放/直播采集框架、Qt 显示，以及本机上的回放全链路（IQ~$\rightarrow$~测向~$\rightarrow$~ZMQ~$\rightarrow$~极坐标）。\textbf{尚未}完成真实信号检测、通道幅相校准、外场测角、第二站交汇定位飞手，以及八通道升级。单站输出仅为方位角，不得视为飞手经纬度。
+本仓库实现无人机遥控/图传信号的\textbf{单站无源测向}，算法为均匀圆阵（UCA）上的 MUSIC，前端为 1~台 USRP X310 与 2~块 TwinRX（4~路相干接收），实物天线为八元圆阵中固定抽取的阵元 1、3、5、7。上位机采用 PySide6。
+\done{截至 2026-09-11，软件已完成接口冻结、MUSIC 仿真验收、能量检测、已知源校准 CLI、IQ 回放/存盘、无 $R_m$ 时仍发布 iq/detect 的 live 路径、Qt 显示，以及回放全链路（IQ~$\rightarrow$~detect~$\rightarrow$~MUSIC~$\rightarrow$~ZMQ~$\rightarrow$~极坐标约 $30^\circ$）。}
+\pend{尚未}完成\pend{X310 现场相参联调}、\remind{夹具 $R_m$ 实测}、\pend{外场测角}、第二站交汇定位飞手，以及八通道升级。
+单站输出仅为方位角，不得视为飞手经纬度。
 \end{abstract}
 
 \section{项目目标与边界}
@@ -103,7 +122,10 @@ MUSIC 对第 $n$ 次快拍 $\boldsymbol{x}(n)=\boldsymbol{A}(\theta)\boldsymbol{
 \end{tabular}
 \end{table}
 
-禁止用射频开关轮询未接的 2/4/6/8 元（MUSIC 需要同时相参快拍）。TwinRX 必须板内及板间 \textbf{LO 共享}。\texttt{阵列天线/优化结果/} 中「半径 xx~mm」是单元相位中心优化，\textbf{不是}圆阵半径 $R_m$；夹具未实测前硬件配置保持 $R_m=\mathrm{null}$，算法拒绝出方位。
+禁止用射频开关轮询未接的 2/4/6/8 元（MUSIC 需要同时相参快拍）。TwinRX 必须板内及板间 \textbf{LO 共享}。\texttt{阵列天线/优化结果/} 中「半径 xx~mm」是单元相位中心优化（HFSS Offset），\textbf{不是}圆阵半径 $R_m$。
+\done{已核查该文件夹：无夹具半径米制数、无通道幅相实测表。}
+\remind{按约定暂不填写 \texttt{array\_uca\_m4.yaml} 的 $R_m$；最后真机对打方位时再提醒测量并写入。}
+无 $R_m$ 时 \done{worker 仍可采 IQ、做检测}，但 \remind{不得把极坐标当真值测向}。
 
 \subsection{上位机选型}
 
@@ -153,12 +175,12 @@ MUSIC 对第 $n$ 次快拍 $\boldsymbol{x}(n)=\boldsymbol{A}(\theta)\boldsymbol{
 \toprule
 目录 & 职责 \\
 \midrule
-\texttt{sdr/} & X310 四通道采集与文件回放 \\
-\texttt{detect/} & 频谱侦察与突发切分（目前仅占位） \\
+\texttt{sdr/} & \done{X310 四通道采集、--replay / --save（npy+meta）} \\
+\texttt{detect/} & \done{窄带能量检测 + 突发切分（已替换整帧占位）} \\
 \texttt{aoa/} & MUSIC 方位估计 \\
 \texttt{host/} & PySide6 显示与命令 \\
 \texttt{sim/} & 已知入射角的仿真 IQ \\
-\texttt{calib/} & 幅相系数 YAML \\
+\texttt{calib/} & \done{identity + 已知源 CLI（\texttt{python -m calib}）} \\
 \texttt{geo/} & 多站交汇预留 \\
 \texttt{configs/} & 阵型、通道、频段 \\
 \texttt{scripts/} & \texttt{worker.py}、\texttt{host.py} \\
@@ -171,14 +193,14 @@ MUSIC 对第 $n$ 次快拍 $\boldsymbol{x}(n)=\boldsymbol{A}(\theta)\boldsymbol{
 
 \section{当前工作进度}
 
-进度按 Git 提交与本机工作区两部分记录，避免把未推送改动写成「已入库」。
+\upd{下列提交均已在 \texttt{origin/master}（更新文档前已快进合并并推送 live 分支）。}
 
 \subsection{已推送到 \texttt{origin/master} 的提交}
 
 \begin{table}[htbp]
 \centering
-\caption{主干提交（截至远程 \texttt{5186d4b}）}
-\begin{tabular}{@{}llp{7.4cm}@{}}
+\caption{主干提交（截至远程 \texttt{8f370f1}）}
+\begin{tabular}{@{}llp{6.6cm}@{}}
 \toprule
 提交 & 说明 & 含义 \\
 \midrule
@@ -186,15 +208,19 @@ MUSIC 对第 $n$ 次快拍 $\boldsymbol{x}(n)=\boldsymbol{A}(\theta)\boldsymbol{
 \texttt{148dc6c} & 四元 UCA MUSIC 与 $\theta=30^\circ$ 金标 & 算法可在无硬件时回归 \\
 \texttt{1dccf27} & IqFrame 回放/直播与 worker 发布 \texttt{iq} & \texttt{--replay} 不依赖 UHD；live 检查 LO 共享 \\
 \texttt{5186d4b} & PySide6 上位机订阅 ZMQ AOA & 极坐标、未校准横幅、禁止画飞手坐标 \\
+\upd{\texttt{5d79b50}} & \upd{worker 接 MUSIC，回放出 $30^\circ$} & \upd{GUI 不跑测向} \\
+\upd{\texttt{f1eb565}} & \upd{能量检测 + 已知源校准 CLI} & \upd{$R_m$ 空则拒绝校准/测向} \\
+\upd{\texttt{8f370f1}} & \upd{无 $R_m$ 时 live 仍发 iq/detect} & \upd{\texttt{--save} 存 npy+meta；不发 aoa} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{本机已完成、相对远程尚未提交的集成}
+\subsection{\done{已入库，不再是「仅本机未提交」}}
 
-集成 Agent 已把 worker 接到 \file{aoa.MusicEstimator}：回放时将整帧当作 burst，发布 \file{detect}/\file{aoa}/\file{status}；仿真默认 \file{configs/array_uca_m4_sim.yaml}（$R_m=0.15\,\mathrm{m}$，标明 simulation only）；硬件 yaml 在 $R_m$ 为空时状态为 error 且不发方位。对应改动目前在工作区，包括 worker 入口、运行手册，以及尚未纳入版本库的 worker 回放回归测试。
-
-\textbf{建议}尽快将上述集成文件单独提交并推送；\textbf{不要}把 \texttt{阵列天线/} 下两份 PDF 的删除一并提交。
+\done{worker 已接 MUSIC 与能量检测。}
+仿真默认阵型 yaml（$R_m=0.15\,\mathrm{m}$，simulation only）。
+\done{硬件 yaml 在 $R_m$ 为空时：\texttt{status.state=running}，\texttt{detail} 说明缺半径，PUB \texttt{iq}/\texttt{detect}，不 PUB \texttt{aoa}。}
+\remind{不要把这种运行状态当成已完成测向。}
 
 \subsection{分模块完成度}
 
@@ -208,12 +234,13 @@ MUSIC 对第 $n$ 次快拍 $\boldsymbol{x}(n)=\boldsymbol{A}(\theta)\boldsymbol{
 接口与规则 & 完成 & \texttt{interfaces.md}、\texttt{hardware.md}、\texttt{.cursor/rules} \\
 仿真 IQ & 完成 & \texttt{tests/golden/theta30\_m4.npy}，$N\ge 1024$，SNR$\approx 20\,\mathrm{dB}$ \\
 MUSIC & 完成 & 导向矢量、MDL 信源数（$M=4$ 时 $K\le 2$）、$0.5^\circ$ 网格 \\
-回放采集 & 完成 & npy+meta；\texttt{import sdr} 不加载 UHD \\
-X310 live 框架 & 代码已写 & 依赖本机 UHD 与 LO 共享，\textbf{尚未实装联调} \\
+回放采集 & \done{完成} & npy+meta；\texttt{import sdr} 不加载 UHD；\done{\texttt{--save}} \\
+X310 live 框架 & \done{软件完成} & \pend{依赖本机 UHD 与 LO 共享，尚未插机联调} \\
 Qt 上位机 & MVP 完成 & 设备状态、IQ 幅度摘要、MUSIC 极坐标、方位读数 \\
-worker$\leftrightarrow$aoa 集成 & 本机完成 & 回放应使极坐标指向约 $30^\circ$ \\
-信号检测 & 未开始 & 现为整帧占位，无能量检测/跳频驻留逻辑 \\
-幅相校准 & 仅恒等 & \texttt{calib/identity.yaml}，界面显示 UNCALIBRATED \\
+worker$\leftrightarrow$aoa 集成 & \done{已入库} & \done{回放极坐标约 $30^\circ$} \\
+信号检测 & \done{完成} & \done{能量+突发；噪声不误报；金标整帧占用} \\
+幅相校准 & \done{软件完成} & \done{\texttt{python -m calib}}；硬件仍用 identity \\
+夹具 $R_m$ & \remind{暂不填} & \remind{最后验收时再量并写入} \\
 多站交汇 / 飞手定位 & 未开始 & \texttt{geo/} 仅文档 \\
 $M=8$ 双机 & 仅配置预留 & \texttt{array\_uca\_m8.yaml} \\
 FPGA/脱机测向 & 未开始 & 技术书后续方向，不在本阶段 \\
@@ -224,8 +251,11 @@ FPGA/脱机测向 & 未开始 & 技术书后续方向，不在本阶段 \\
 \subsection{已具备的验证}
 
 \begin{itemize}[leftmargin=2em]
-  \item 算法回归：\texttt{pytest tests/test\_aoa\_theta30.py}，要求 $|\hat\theta-30^\circ|\le 2^\circ$（仿真回归，\textbf{不是}外场 $5^\circ$ RMS 指标）；$R_m=\mathrm{null}$ 时拒绝出方位。
-  \item 集成回归（本机新增）：\texttt{tests/test\_worker\_replay\_theta30.py} 拉起 worker，检查 ZMQ \texttt{aoa} 话题近 $30^\circ$，且 identity 校准时 \texttt{uncalibrated=true}。
+  \item 算法回归：\texttt{pytest tests/test\_aoa\_theta30.py}，$|\hat\theta-30^\circ|\le 2^\circ$（\textbf{不是}外场 $5^\circ$ RMS）。
+  \item \done{检测：纯噪声 0 事件；中间突发可切段；金标 CW 整帧；带外 $f_c$ 不报。}
+  \item \done{校准：\texttt{tests/test\_calib\_theta30.py}；注入 $e^{j\pi/2}$ 后仍回到 $30^\circ\pm 2^\circ$。}
+  \item \done{集成：\texttt{test\_worker\_replay\_theta30.py}——仿真 yaml 发 aoa$\approx 30^\circ$；硬件 yaml 无 aoa，state=running。}
+  \item \done{存盘：\texttt{tests/test\_sdr\_replay\_save.py}（\texttt{--save} / 无 UHD 回放）。}
 \end{itemize}
 
 无硬件演示：
@@ -235,13 +265,17 @@ python scripts/worker.py --replay tests/golden/theta30_m4
 python scripts/host.py --zmq tcp://127.0.0.1:5556
 \end{lstlisting}
 
-第一命令默认仿真阵型；第二命令即使 worker 未启动也应能打开窗口并显示「未连接」。
+\pend{有 X310、尚无 $R_m$ 时只采不测向：}
+
+\begin{lstlisting}
+python scripts/worker.py --live --config configs/channel_map.yaml --array configs/array_uca_m4.yaml --save captures/x310_m4
+\end{lstlisting}
 
 \section{关键实现要点（供后续接手）}
 
 \begin{enumerate}[leftmargin=2em]
   \item \textbf{测向在 worker，显示在 host。} 禁止把 MUSIC 或 UHD 放进 Qt 定时器。
-  \item \textbf{仿真半径与夹具半径分离。} 合成 $R_m$ 只写在仿真配置里；夹具配置保持空值直至卷尺或图纸量完。
+  \item \textbf{仿真半径与夹具半径分离。} 合成 $R_m$ 只写在仿真配置里；\remind{夹具 $R_m$ 按约定暂空，最后真机验收再填。}
   \item \textbf{未校准必须可见。} identity 校准不是暗室结果，host 需醒目标注。
   \item \textbf{单站不是定位。} 上位机可画本站与射线，不可把一条 AOA 标成飞手经纬度。
   \item \textbf{live 启动门闩。} \texttt{lo\_share} 不为 true 则拒绝；UHD 仅在打开电台时导入。
@@ -251,51 +285,38 @@ python scripts/host.py --zmq tcp://127.0.0.1:5556
 
 建议严格按阶段推进。前一阶段的门闩未过，不要并行铺开后一阶段（尤其不要同时改接口字段）。
 
-\subsection{阶段 A：固化集成（约 0.5 天）}
+\subsection{\done{阶段 A：固化集成——已完成}}
 
-\begin{itemize}[leftmargin=2em]
-  \item 提交并推送 worker 集成与 \texttt{test\_worker\_replay\_theta30.py}；
-  \item 更新根目录 \texttt{README.md}（目前仍写「只有目录骨架」，已过时）；
-  \item 本机走通「回放 + 上位机极坐标约 $30^\circ$」并截图归档。
-\end{itemize}
+\done{worker 集成、ZMQ 回归、回放极坐标约 $30^\circ$ 已在 \texttt{5d79b50} 入库。}
+\pend{根目录 README 仍偏旧，可顺手改一句「已有回放演示」。}
 
-\subsection{阶段 B：检测模块（约 1 周）}
+\subsection{\done{阶段 B：检测模块——已完成}}
 
-打开仅改 \texttt{detect/} 的 Agent。用仿真突发与录制 IQ，完成：
+\done{能量检测与突发切分已合入 \texttt{f1eb565}；worker 不再整帧冒充 burst（连续波金标仍会整帧占用，属预期）。}
+跳频驻留与协议破解仍不在本阶段。
 
-\begin{itemize}[leftmargin=2em]
-  \item 指定频段能量检测与突发起止（\texttt{DetectionEvent}）；
-  \item 900M / 2.4G / 5.8G 配置走 \texttt{configs/bands.yaml}；
-  \item worker 用真实检测替换「整帧当 burst」。
-\end{itemize}
+\subsection{\done{阶段 C 软件：已知源校准 CLI——已完成}；\remind{夹具几何仍待验收}}
 
-图传/遥控若跳频，须在单跳驻留内积累快拍；相对宽带时先信道化再分子带做 MUSIC。本阶段仍不必破解具体协议。
-
-\subsection{阶段 C：几何与校准（外场/实验室，约 1--2 周）}
-
-软件无法替代的部分，以人工为主、Agent 为辅：
-
+\done{\texttt{python -m calib} 可对仿真金标写出 \texttt{status=calibrated}。}
 \begin{enumerate}[leftmargin=2em]
-  \item 量夹具旋转中心到阵元参考点，写入 \texttt{R\_m}（米）；
-  \item 标记阵元 1 为阵列 $0^\circ$ 轴，填写 \texttt{north\_offset\_deg}；
-  \item 确认四根等长电缆与 TwinRX LO 共享；
-  \item 功分器或暗室已知方位源，估计 \texttt{gain\_lin}、\texttt{phase\_rad}，\texttt{status} 改为 \texttt{calibrated}；
+  \item \remind{最后验证效果时：量夹具中心到阵元参考点，写入 \texttt{R\_m}（米）；}
+  \item \pend{标记阵元 1 为阵列 $0^\circ$ 轴，填写 \texttt{north\_offset\_deg}；}
+  \item \pend{确认等长电缆与 TwinRX LO 共享；}
+  \item \pend{功分器/暗室已知方位源跑 calib，改 \texttt{calib\_path}；}
   \item 换线、搬站、改 \texttt{channel\_map} 后必须复校。
 \end{enumerate}
 
-无 $R_m$ 与校准，接上 X310 也只能得到错误谱峰。
-
-\subsection{阶段 D：X310 实装联调（约 1 周，必须本机）}
+\subsection{\done{阶段 D 软件：live 存盘 / 无 $R_m$ 不测向——已完成}；\pend{插机联调未做}}
 
 \begin{itemize}[leftmargin=2em]
-  \item \texttt{channel\_map.yaml} 填写序列号，\texttt{replay\_only: false}；
-  \item Python 3.11 + Ettus/conda 的 UHD（不要塞进默认 pip 清单）；
-  \item
+  \item \pend{\texttt{channel\_map.yaml} 填写序列号，\texttt{replay\_only: false}；}
+  \item \pend{本机 Python 3.11 + Ettus/conda UHD；}
+  \item \done{命令已具备：}
 \begin{lstlisting}
-python scripts/worker.py --live --config configs/channel_map.yaml --array configs/array_uca_m4.yaml
+python scripts/worker.py --live --config configs/channel_map.yaml --array configs/array_uca_m4.yaml --save captures/x310_m4
 \end{lstlisting}
-  \item 同时把原始帧存成 npy+meta，便于事后回放；
-  \item 用已知方位辐射源比对，看测角是否进入 $5^\circ$ 量级（四通道不承诺八元指标）。
+  \item \remind{未填 $R_m$ 时只检查连接、IQ、detect，不要验收方位角；}
+  \item \pend{填完 $R_m$ 并用已知源对打后，再看是否进入 $5^\circ$ 量级。}
 \end{itemize}
 
 \subsection{阶段 E：跟踪与可用性（可选，约 1 周）}
@@ -327,12 +348,12 @@ python scripts/worker.py --live --config configs/channel_map.yaml --array config
 \toprule
 序号 & 环境 & 任务 \\
 \midrule
-1 & 任意 & 提交集成 worker 与 ZMQ 回归测试并推送 \\
-2 & 任意 & 更新 README，固化回放演示步骤 \\
-3 & Cursor & Agent：只实现 \texttt{detect/} 能量检测 \\
-4 & 实验室 & 测量 $R_m$、北向、LO 共享、幅相校准 \\
-5 & 本机+X310 & live 采集、存盘、已知源对打 \\
-6 & 外场 & 评估四通道测角误差（目标看 $5^\circ$ 量级） \\
+1 & \done{完成} & \done{提交集成 worker 与 ZMQ 回归} \\
+2 & \pend{可选} & \pend{更新根 README 演示步骤} \\
+3 & \done{完成} & \done{detect 能量检测} \\
+4 & \remind{最后验收} & \remind{测量 $R_m$、北向；再跑硬件 calib} \\
+5 & \pend{现在} & \pend{本机+X310：live 只采 IQ 并 \texttt{--save}} \\
+6 & \pend{填 $R_m$ 后} & \pend{已知源对打，看 $5^\circ$ 量级} \\
 7 & 有第二站后 & \texttt{geo/} 交汇与飞手坐标 \\
 8 & 有第二台 X310 后 & $M=8$ 与多目标指标 \\
 \bottomrule
@@ -341,11 +362,13 @@ python scripts/worker.py --live --config configs/channel_map.yaml --array config
 
 \section{结论}
 
-项目已从空仓库走到\textbf{可演示的四通道仿真测向闭环}：接口冻结、MUSIC 在 $\theta=30^\circ$ 金标上误差不超过 $2^\circ$、无设备回放、Qt 显示方位射线。这证明软件骨架与算法核可用。
+项目已从空仓库走到\done{\textbf{可演示的四通道仿真测向闭环}}：接口冻结、MUSIC 在 $\theta=30^\circ$ 金标上误差不超过 $2^\circ$、能量检测、已知源校准 CLI、无 $R_m$ 也可采 IQ、Qt 显示方位射线。
 
-与「定位飞手、10~km、同频三目标、$5^\circ$ RMS」之间，缺口明确且可排序：\textbf{检测真实突发 $\rightarrow$ 量几何并校准 $\rightarrow$ X310 相参实装 $\rightarrow$ 多站交汇 $\rightarrow$ 八通道}。在缺口补齐前，对外表述应是「单站无源测向（四通道过渡态）」，而不是「已具备飞手定位能力」。
+\pend{下一步是插上 X310 做只采不测向的存盘联调。}
+\remind{最后验证测角效果时，再提醒填写夹具 $R_m$ 并跑硬件 calib。}
+与「定位飞手、10~km、同频三目标」之间仍缺多站与八通道，对外仍称「单站无源测向（四通道过渡态）」。
 
 \vspace{1.2em}
-\noindent\textit{本文根据仓库 \texttt{master}（\texttt{5186d4b}）及本机集成工作区整理，与 \texttt{docs/interfaces.md}、\texttt{docs/hardware.md} 一并作为后续开发基线。}
+\noindent\textit{\upd{本文按 \texttt{origin/master}（\texttt{8f370f1}，2026-09-11）更新。} 与 \texttt{docs/interfaces.md}、\texttt{docs/hardware.md} 一并作为后续开发基线。}
 
 \end{document}
