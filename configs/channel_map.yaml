@@ -3,10 +3,11 @@
 schema_version: 1
 M: 4
 lo_share: true
-# true: ignore usrp_serial / device_args (replay / sim).
-replay_only: true
-device_args: ""
-usrp_serial: null
+# false: open the X310. Keep true only for replay/sim machines with no radio.
+replay_only: false
+# This unit is reached via NI-USRP RIO (niusrpriorpc), not 1 GigE.
+device_args: "resource=RIO0"
+usrp_serial: "3229FCE"
 mapping:
   - channel_index: 0
     element_id: 1

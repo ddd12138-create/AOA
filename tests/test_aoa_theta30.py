@@ -18,7 +18,7 @@ from aoa import (
 ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_STEM = ROOT / "tests" / "golden" / "theta30_m4"
 SIM_ARRAY = ROOT / "configs" / "array_uca_m4_sim.yaml"
-FIXTURE_ARRAY = ROOT / "configs" / "array_uca_m4.yaml"
+FIXTURE_ARRAY = ROOT / "configs" / "array_uca_m4_unset.yaml"
 IDENTITY_CALIB = ROOT / "calib" / "identity.yaml"
 
 

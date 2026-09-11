@@ -8,7 +8,8 @@ element_ids: [1, 3, 5, 7]
 # Measure on the wooden/3D-printed jig with a tape or drawing.
 # Do NOT copy HFSS "半径 xx mm" files under 阵列天线/优化结果/ (those are
 # per-element phase-centre offsets, e.g. 21.25 mm at 2.4 GHz).
-R_m: null
+# Lab tape: opposite SMA spacing d15 = d37 = 0.12 m → R_m = d/2.
+R_m: 0.06
 # Azimuth of each used element, degrees, CCW from array 0° axis (top view).
 # Element 1 defines the array 0° axis; mark it on the fixture.
 phi_deg: [0.0, 90.0, 180.0, 270.0]

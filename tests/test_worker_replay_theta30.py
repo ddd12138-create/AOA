@@ -15,7 +15,7 @@ import zmq
 
 ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_STEM = "tests/golden/theta30_m4"
-FIXTURE_ARRAY = "configs/array_uca_m4.yaml"
+FIXTURE_ARRAY = "configs/array_uca_m4_unset.yaml"
 WORKER = ROOT / "scripts" / "worker.py"
 
 
