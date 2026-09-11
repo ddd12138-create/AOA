@@ -30,7 +30,7 @@ from sdr.channel_map import ChannelMap, assert_live_allowed, load_channel_map
 from sdr.cli import add_source_args
 from sdr.errors import LiveRejected, ReplayError, SdrError
 from sdr.iqframe import IqFrame
-from sdr.replay import ReplaySource
+from sdr.replay import ReplaySource, save_replay
 
 DEFAULT_PUB = "tcp://127.0.0.1:5556"
 DEFAULT_REP = "tcp://127.0.0.1:5557"
@@ -97,6 +97,7 @@ class Worker:
         replay: bool,
         M: int,
         estimator: MusicEstimator,
+        save_stem: str | Path | None = None,
     ) -> None:
         self.source = source
         self.pub_addr = pub_addr
@@ -104,6 +105,7 @@ class Worker:
         self.replay = replay
         self.M = M
         self._estimator = estimator
+        self._save_stem = Path(save_stem) if save_stem else None
         self.uncalibrated = bool(estimator.uncalibrated)
         self._event_id = 0
         self._aoa_blocked = False
@@ -128,8 +130,8 @@ class Worker:
         try:
             require_radius_m(self._estimator.geometry)
         except MissingArrayRadiusError as exc:
+            # Missing R_m is not a stream failure: still publish iq/detect.
             self._aoa_blocked = True
-            self.state = "error"
             self.detail = str(exc)
 
     def start_cmd_thread(self) -> None:
@@ -139,7 +141,7 @@ class Worker:
         self.shutdown = True
         with self._lock:
             self.running = False
-            if not self._aoa_blocked:
+            if self.state != "error":
                 self.state = "idle"
             try:
                 self.source.close()
@@ -180,15 +182,13 @@ class Worker:
             if want:
                 self.source.start()
                 self.running = True
-                if self._aoa_blocked:
-                    self.state = "error"
-                else:
-                    self.state = "running"
+                self.state = "running"
+                if not self._aoa_blocked:
                     self.detail = ""
             else:
                 self.running = False
                 self.source.stop()
-                self.state = "error" if self._aoa_blocked else "idle"
+                self.state = "idle"
         self._publish_status()
 
     def status_payload(self) -> dict[str, Any]:
@@ -232,9 +232,8 @@ class Worker:
                 out = self._estimator.estimate(aoa_frame, event)
             except MissingArrayRadiusError as exc:
                 self._aoa_blocked = True
-                self.state = "error"
                 self.detail = str(exc)
-                log.error("%s", exc)
+                log.warning("%s", exc)
                 self._publish_status()
                 return
             self.uncalibrated = bool(out.uncalibrated)
@@ -270,6 +269,8 @@ class Worker:
                     frame = self.source.next_frame()
                     if not self.running:
                         continue
+                    if self._save_stem is not None:
+                        save_replay(self._save_stem, frame)
                     self._publish_iq(frame)
                     self._detect_and_aoa(frame)
                 except Exception as exc:
@@ -364,6 +365,7 @@ def main(argv: list[str] | None = None) -> int:
             replay=replay,
             M=M,
             estimator=estimator,
+            save_stem=args.save,
         )
     except zmq.ZMQError as exc:
         source.close()

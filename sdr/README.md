@@ -20,8 +20,9 @@ Owns USRP acquisition and file replay. Produces `IqFrame` as defined in [docs/in
 python -m sdr --replay path/to/stem
 python -m sdr --live --config configs/channel_map.yaml
 python -m sdr --live --config configs/channel_map.yaml --save path/to/stem
+python -m sdr --replay path/to/stem --save path/to/copy
 ```
 
-`--replay` is always on the parser (live is optional). It loads `<stem>.npy` + `<stem>.meta.json` and does not import UHD. `--live` is one X310 / 4 TwinRX channels in `channel_map.yaml` order and is refused unless `lo_share` is true.
+`--replay` is always on the parser (live is optional). It loads `<stem>.npy` + `<stem>.meta.json` and does not import UHD. `--live` is one X310 / 4 TwinRX channels in `channel_map.yaml` order (`A:0→1` … `B:1→7`) and is refused unless `lo_share` is true. `--save` writes the current IqFrame as `<stem>.npy` + `<stem>.meta.json`.
 
-Worker ZMQ entry: `python scripts/worker.py --replay path/to/stem`. See [docs/runbook.md](../docs/runbook.md).
+Worker ZMQ entry: `python scripts/worker.py --replay path/to/stem` (same `--save`). Hardware `--array configs/array_uca_m4.yaml` with `R_m: null` still PUBs iq/detect; it does not PUB aoa. See [docs/runbook.md](../docs/runbook.md).

@@ -13,10 +13,11 @@ python scripts/worker.py --replay tests/golden/theta30_m4
 python scripts/worker.py --replay tests/golden/theta30_m4 --array configs/array_uca_m4_sim.yaml
 python scripts/worker.py --replay tests/golden/theta30_m4 --array configs/array_uca_m4.yaml
 python scripts/worker.py --live --config configs/channel_map.yaml --array configs/array_uca_m4.yaml
+python scripts/worker.py --live --config configs/channel_map.yaml --array configs/array_uca_m4.yaml --save captures/x310_m4
 python scripts/host.py --zmq tcp://127.0.0.1:5556
 ```
 
-`--replay` defaults `--array` to `configs/array_uca_m4_sim.yaml`. `--live` defaults to `configs/array_uca_m4.yaml`. If that hardware file still has `R_m: null`, worker refuses azimuth and sets `status.state=error`. Identity calib (`calib/identity.yaml`) sets `status.uncalibrated=true`.
+`--replay` defaults `--array` to `configs/array_uca_m4_sim.yaml`. `--live` defaults to `configs/array_uca_m4.yaml`. If that hardware file still has `R_m: null`, worker still PUBs iq/detect, does not PUB aoa, and keeps `status.state=running` with a missing-`R_m` `detail`. Identity calib (`calib/identity.yaml`) sets `status.uncalibrated=true`.
 
 Worker PUB `tcp://127.0.0.1:5556` (topic `iq` / `detect` / `aoa` / `status`), REP `tcp://127.0.0.1:5557` (`tune` / `start` / `stop`). detect is a whole-frame burst placeholder until `detect/` exists. Addresses and JSON: [docs/interfaces.md](../docs/interfaces.md). How to run: [docs/runbook.md](../docs/runbook.md).
 

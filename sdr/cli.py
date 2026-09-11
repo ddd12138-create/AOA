@@ -38,6 +38,11 @@ def add_source_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--fs-hz", type=float, default=DEFAULT_FS_HZ)
     parser.add_argument("--gain-db", type=float, default=DEFAULT_GAIN_DB)
     parser.add_argument("--n-samp", type=int, default=DEFAULT_N_SAMP)
+    parser.add_argument(
+        "--save",
+        metavar="STEM",
+        help="write the current IqFrame as <stem>.npy + <stem>.meta.json",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -46,11 +51,6 @@ def build_parser() -> argparse.ArgumentParser:
         description="IqFrame acquisition and file replay (no Qt, no MUSIC).",
     )
     add_source_args(parser)
-    parser.add_argument(
-        "--save",
-        metavar="STEM",
-        help="with --live, write one frame as npy+meta.json",
-    )
     return parser
 
 
@@ -63,6 +63,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.replay:
             frame = load_replay(args.replay)
+            if args.save:
+                save_replay(args.save, frame)
             sys.stdout.write(json.dumps(frame.to_header(), indent=2, ensure_ascii=False) + "\n")
             return 0
 

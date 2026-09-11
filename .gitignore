@@ -6,6 +6,7 @@ venv/
 .env
 *.egg-info/
 .pytest_cache/
+tests/_scratch/
 .mypy_cache/
 .ruff_cache/
 Thumbs.db

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import shutil
 import socket
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 import zmq
@@ -33,17 +35,23 @@ def _ephemeral_endpoints() -> tuple[str, str]:
     return f"tcp://127.0.0.1:{_free_port()}", f"tcp://127.0.0.1:{_free_port()}"
 
 
-def _collect(pub_addr: str, timeout_s: float) -> tuple[list[dict], list[dict]]:
+def _collect(
+    pub_addr: str, timeout_s: float
+) -> tuple[list[dict], list[dict], list[dict], int]:
     ctx = zmq.Context()
     sub = ctx.socket(zmq.SUB)
     sub.setsockopt(zmq.LINGER, 0)
     sub.setsockopt(zmq.RCVTIMEO, 150)
     sub.setsockopt(zmq.SUBSCRIBE, b"aoa")
     sub.setsockopt(zmq.SUBSCRIBE, b"status")
+    sub.setsockopt(zmq.SUBSCRIBE, b"detect")
+    sub.setsockopt(zmq.SUBSCRIBE, b"iq")
     sub.connect(pub_addr)
     time.sleep(0.35)
     aoas: list[dict] = []
     statuses: list[dict] = []
+    detects: list[dict] = []
+    iq_n = 0
     deadline = time.monotonic() + timeout_s
     try:
         while time.monotonic() < deadline:
@@ -54,6 +62,9 @@ def _collect(pub_addr: str, timeout_s: float) -> tuple[list[dict], list[dict]]:
             if len(frames) < 2:
                 continue
             topic = frames[0].decode("utf-8")
+            if topic == "iq":
+                iq_n += 1
+                continue
             body = json.loads(frames[1].decode("utf-8"))
             if not isinstance(body, dict):
                 continue
@@ -61,10 +72,12 @@ def _collect(pub_addr: str, timeout_s: float) -> tuple[list[dict], list[dict]]:
                 aoas.append(body)
             elif topic == "status":
                 statuses.append(body)
+            elif topic == "detect":
+                detects.append(body)
     finally:
         sub.close(0)
         ctx.term()
-    return aoas, statuses
+    return aoas, statuses, detects, iq_n
 
 
 def _spawn_worker(*extra: str) -> tuple[subprocess.Popen, str]:
@@ -109,8 +122,10 @@ def test_worker_replay_theta30_aoa_topic_near_30():
     try:
         time.sleep(0.4)
         assert proc.poll() is None, _stop(proc)[1]
-        aoas, statuses = _collect(pub, timeout_s=4.0)
+        aoas, statuses, detects, iq_n = _collect(pub, timeout_s=4.0)
         assert statuses, "no status topic (host would stay 未连接)"
+        assert iq_n > 0, "expected iq topic during sim replay"
+        assert detects, "expected detect topic before aoa"
         assert aoas, "no aoa topic (host polar would not move)"
 
         last = aoas[-1]
@@ -130,17 +145,47 @@ def test_worker_replay_theta30_aoa_topic_near_30():
         _stop(proc)
 
 
-def test_worker_hardware_array_rm_null_refuses_aoa():
-    """configs/array_uca_m4.yaml keeps R_m null: no azimuth, status.state=error."""
+def test_worker_hardware_array_rm_null_no_aoa_topic():
+    """Hardware yaml R_m is null: iq/detect still PUB; no aoa; running + detail."""
     proc, pub = _spawn_worker("--array", FIXTURE_ARRAY)
     try:
         time.sleep(0.4)
-        aoas, statuses = _collect(pub, timeout_s=3.0)
-        assert statuses, "expected status error when R_m is null"
-        err = next((s for s in statuses if s.get("state") == "error"), statuses[-1])
-        assert err["state"] == "error"
-        assert "R_m" in str(err.get("detail") or "")
-        assert err["uncalibrated"] is True
+        aoas, statuses, detects, iq_n = _collect(pub, timeout_s=3.0)
+        assert statuses, "expected status while streaming without R_m"
+        running = next((s for s in statuses if s.get("state") == "running"), statuses[-1])
+        assert running["state"] == "running"
+        assert running["state"] != "error"
+        assert "R_m" in str(running.get("detail") or "")
+        assert running["uncalibrated"] is True
+        assert iq_n > 0, "missing R_m must not stop iq PUB"
+        assert detects, "missing R_m must still PUB detect when a burst exists"
         assert aoas == []
+        assert all(s.get("state") != "error" for s in statuses)
     finally:
         _stop(proc)
+
+
+def test_worker_replay_save_writes_iqframe_pair():
+    scratch = ROOT / "tests" / "_scratch" / uuid.uuid4().hex
+    scratch.mkdir(parents=True, exist_ok=True)
+    stem = scratch / "live_frame"
+    proc, pub = _spawn_worker("--save", str(stem))
+    try:
+        time.sleep(0.4)
+        assert proc.poll() is None, _stop(proc)[1]
+        _collect(pub, timeout_s=2.0)
+        npy = stem.with_suffix(".npy")
+        meta = Path(str(stem) + ".meta.json")
+        assert npy.is_file(), npy
+        assert meta.is_file(), meta
+        header = json.loads(meta.read_text(encoding="utf-8"))
+        assert "iq" not in header
+        assert header["n_chan"] == 4
+        assert header["element_ids"] == [1, 3, 5, 7]
+        assert header["channel_ids"] == [0, 1, 2, 3]
+        assert header["dtype"] == "complex64"
+        assert header["layout"] == "channel_first"
+        assert header["endianness"] == "little"
+    finally:
+        _stop(proc)
+        shutil.rmtree(scratch, ignore_errors=True)
